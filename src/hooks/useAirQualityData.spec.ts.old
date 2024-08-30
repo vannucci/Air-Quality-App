@@ -1,0 +1,127 @@
+//@ts-nocheck
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { useAirQualityData } from "./useAirQualityData";
+
+// Mock the constants
+vi.mock("../constants", () => ({
+  LOCATIONS: ["London", "Paris", "New York"],
+  API_BASE_URL: "https://api.example.com",
+  API_TOKEN: "mock-token",
+}));
+
+// Mock fetch
+global.fetch = vi.fn();
+
+describe("useAirQualityData", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should initialize with loading state", () => {
+    const { result } = renderHook(() => useAirQualityData());
+    expect(result.current.loading).toBe(true);
+    expect(result.current.error).toBe(null);
+    expect(result.current.airQualityData).toEqual([]);
+    expect(result.current.selectedLocation).toBe("London");
+  });
+
+  it("should fetch data successfully", async () => {
+    const mockData = {
+      London: { aqi: 50 },
+      Paris: { aqi: 60 },
+      "New York": { aqi: 70 },
+    };
+
+    (global.fetch as any).mockImplementation((url) => {
+      const city = url.split("/")[3].split("?")[0];
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: mockData[city] }),
+      });
+    });
+
+    const { result } = renderHook(() => useAirQualityData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBe(null);
+    expect(result.current.airQualityData).toEqual([
+      { location: "London", data: { aqi: 50 } },
+      { location: "Paris", data: { aqi: 60 } },
+      { location: "New York", data: { aqi: 70 } },
+    ]);
+  });
+
+  it("should handle fetch error", async () => {
+    (global.fetch as any).mockRejectedValue(new Error("Network error"));
+
+    const { result } = renderHook(() => useAirQualityData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toEqual(new Error("Network error"));
+    expect(result.current.airQualityData).toEqual([]);
+  });
+
+  it("should handle HTTP error", async () => {
+    (global.fetch as any).mockResolvedValue({
+      ok: false,
+      status: 404,
+    });
+
+    const { result } = renderHook(() => useAirQualityData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toEqual(new Error("HTTP error, status: 404"));
+    expect(result.current.airQualityData).toEqual([]);
+  });
+
+  it("should update selected location", () => {
+    const { result } = renderHook(() => useAirQualityData());
+
+    act(() => {
+      result.current.setSelectedLocation("Paris");
+    });
+
+    expect(result.current.selectedLocation).toBe("Paris");
+  });
+
+  it("should refetch data when fetchData is called", async () => {
+    const mockData = {
+      London: { aqi: 50 },
+      Paris: { aqi: 60 },
+      "New York": { aqi: 70 },
+    };
+
+    (global.fetch as any).mockImplementation((url) => {
+      const city = url.split("/")[3].split("?")[0];
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: mockData[city] }),
+      });
+    });
+
+    const { result } = renderHook(() => useAirQualityData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Clear the mock to reset call count
+    (global.fetch as any).mockClear();
+
+    act(() => {
+      result.current.fetchData();
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(global.fetch).toHaveBeenCalledTimes(3); // Once for each location
+    expect(result.current.error).toBe(null);
+    expect(result.current.airQualityData).toEqual([
+      { location: "London", data: { aqi: 50 } },
+      { location: "Paris", data: { aqi: 60 } },
+      { location: "New York", data: { aqi: 70 } },
+    ]);
+  });
+});
